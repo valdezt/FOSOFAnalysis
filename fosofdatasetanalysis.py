@@ -78,6 +78,104 @@ phaseerr_column = "Phase Error [rad]"
 phasen_column = "Number of Points Averaged"
 unperturbed_datatype = (625, 0.0, 0.0, 'off') #, 0.25)
 
+class FOSOFSummary(object):
+    '''
+    Class to visualize the results from all FOSOF data sets in the fosof summary
+    file.
+    '''
+
+    def __init__(self, fosof = True):
+        if fosof:
+            self.fosof_summary = pd.read_csv(fosof_summary_file)
+            self.fosof_summary = self.fosof_summary.set_index('Dataset Timestamp')
+        else:
+            self.fosof_summary = pd.read_csv(summary_file)
+            self.fosof_summary = self.fosof_summary.set_index('Dataset Timestamp')
+
+    def plotlineshape(self, timestamp, c_h = None, averaging_method = None):
+        '''
+        Plots the FOSOF lineshape and its fit for the data at the specified
+        timestamp, combiner/harmonic (c_h), and averaging method.
+        '''
+        fosof_data_folder = self.fosof_summary.loc[timestamp]['Folder'].values[0]
+        fosof_data = pd.read_csv(fosof_data_folder + 'phasedata.csv')
+        fit_data = pd.read_csv(fosof_data_folder + 'fitdata.csv',
+                               converters = {"Least-Squares Fit" : ast.literal_eval,
+                                             "Parameter Error" : ast.literal_eval})
+
+        # Sort the data into different data types
+        fosof_data = fosof_data.set_index(['Averaging Method',
+                                           'Combiner/Harmonic'])
+        fit_data = fit_data.set_index(['Averaging Method', 'Combiner/Harmonic'] + \
+                                      ff.type_groupby_columns)
+
+        ch_list = ['Combiner 1, Harmonic 1', 'Combiner 2, Harmonic 1']
+        avg_method_list = ['Unique Uncertainty', 'RMS Uncertainty']
+        if c_h == None and averaging_method == None:
+            for ch in ch_list:
+                for avg_method in avg_method_list:
+                    plot_ch_avg(ch, avg_method, fosof_data, fit_data)
+            plt.show()
+
+        elif c_h == None:
+            for ch in ch_list:
+                avg_method = averaging_method
+                plot_ch_avg(ch, avg_method, fosof_data, fit_data)
+            plt.show()
+
+        elif averaging_method == None:
+            for avg_method in avg_method_list:
+                ch = c_h
+                plot_ch_avg(ch, avg_method, fosof_data, fit_data)
+            plt.show()
+        else:
+            plot_ch_avg(c_h, averaging_method, fosof_data, fit_data)
+
+    def plot_ch_avg(self, ch, avg_method, fosof_data, fit_data):
+        '''
+        Creates a series of plots for each data type, given a combiner/harmonic
+        (ch) pair, an averaging method, the FOSOF data points, and the fit
+        data. Mainly used by plotlineshape.
+        '''
+
+        # Count the different number of data types (B fields, 910,
+        # offset freq, mass flow)
+        ch_av_data = fosof_data.loc[avg_method, ch].reset_index()
+        ch_av_data = ch_av_data.set_index(ff.type_groupby_columns[:])
+        n_plots = len(ch_av_data) / \
+                  len(ch_av_data[ff.frequency_columnname].unique())
+        indices = ch_av_data.index.unique()
+
+        # Make sure that there's enough plot space. Python rounds
+        # down when performing division of integers.
+        n_plots += 1
+
+        plt.figure()
+
+        for plot_num in range(n_plots-1):
+            ch_av_fit = fit_data.loc[(avg_method, ch) + indices[plot_num]]
+            fit_func = np.poly1d(ch_av_fit.loc['Least-Squares Fit'])
+            fit_err = ch_av_fit.loc['Parameter Error']
+            chi2 = ch_av_fit.loc['Chi Squared']
+            prob_chi2 = ch_av_fit.loc['Probability of Chi Squared']
+            res_freq = ch_av_fit.loc['Resonant Frequency [MHz]']
+            res_freq_err = ch_av_fit.loc['Error in Resonant Frequency [MHz]']
+            plt.subplot(n_plots//2, n_plots//2, plot_num+1)
+            plt.title(ch + ' (' + avg_method + ')\n' + ','.join(np.array(indices[plot_num]).astype(str)))
+            freqs = ch_av_data.loc[indices[plot_num]][ff.frequency_columnname].values
+            phases = ch_av_data.loc[indices[plot_num]]['Average Phase [rad]'].values
+            errors = ch_av_data.loc[indices[plot_num]]['Phase Error [rad]'].values
+            label = 'Slope = ' + str(round(fit_func[1],5)) + \
+                    '+/-' + str(round(fit_err[1],5)) + ' rad/MHz\n'\
+                    'Resonant Frequency = ' + \
+                    str(round(res_freq,4)) + '+/-' + \
+                    str(round(res_freq_err,4)) + ' MHz\n' \
+                    '$\chi^2$ = ' + str(round(chi2,3)) + '\n' \
+                    'P($\chi^2$) = ' + str(round(prob_chi2,3))
+            plt.plot(freqs, fit_func(freqs-910.), 'r', label = label)
+            plt.errorbar(freqs, phases, yerr = errors, fmt = 'b.')
+            plt.legend()
+
 
 class FOSOFDataSet(object):
     '''
@@ -410,23 +508,19 @@ class DataSet(object):
                                                ff.fosofphasediff_columnname,
                                                subtract = self.subtract)
 
-        self.c1_h1[0].to_csv(self.location + '/combiner1_firstharmonic_fit.csv')
-        self.c1_h1[1].to_csv(self.location + '/combiner1_firstharmonic.csv')
+        self.c1_h1[0]['Combiner/Harmonic'] = 'Combiner 1, Harmonic 1'
+        self.c1_h1[1]['Combiner/Harmonic'] = 'Combiner 1, Harmonic 1'
         print('Done first power combiner.')
-
-        # Code to look at 2nd harmonic. Not using it right now because the 2nd
-        # harmonic is too weak to be seen with a spread of less than the cutoff.
-        # self.c1_h2 = self.analyze_fosof_phases(self.full_data.copy(),
-        #                                        ff.fosofphasediffh2_columnname)
-        # self.c1_h2[0].to_csv(self.location + '/combiner1_secondharmonic_fit.csv')
-        # self.c1_h2[1].to_csv(self.location + '/combiner1_secondharmonic.csv')
 
         print('Analyzing data from second power combiner...')
         self.c2_h1 = self.analyze_fosof_phases(self.full_data.copy(),
                                                ff.fosofphasediffm2_columnname)
-        self.c2_h1[0].to_csv(self.location + '/combiner2_firstharmonic_fit.csv')
-        self.c2_h1[1].to_csv(self.location + '/combiner2_firstharmonic.csv')
+        self.c2_h1[0]['Combiner/Harmonic'] = 'Combiner 2, Harmonic 1'
+        self.c2_h1[1]['Combiner/Harmonic'] = 'Combiner 2, Harmonic 1'
         print('Done second power combiner.')
+
+        self.fit_data = pd.concat([self.c1_h1[0], self.c2_h1[0]])
+        self.lineshape_data = pd.concat([self.c1_h1[1], self.c2_h1[1]])
 
         # Average data over time and plot
         print('Analyzing time series data.')
