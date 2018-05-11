@@ -61,6 +61,7 @@ freq_groupby_columns = [offsetfreq_columnname, bxfield_columnname,
                         massflow_columnname, frequency_columnname]
 
 # Group into types (for plotting and saving)
+# offsetfreq_columnname,
 type_groupby_columns = [offsetfreq_columnname, bxfield_columnname,
                         byfield_columnname, pre910_columnname,
                         massflow_columnname]
@@ -264,7 +265,7 @@ def unwrap_fosof_line(phase_data, freq_data, discont = np.pi):
     data = np.array(sorted(dict(zip(freq_data, phase_data)).items()))
     unwrapped = np.unwrap(data[:,1], discont = discont)
 
-    return np.array(list(dict(zip(data[:,0], unwrapped))))
+    return dict(zip(data[:,0],unwrapped))
 
 def average_and_std(x, w = None, n = 0, phases = True):
     '''
@@ -446,7 +447,7 @@ def dx0(x, y, w = None, chi2 = 1):
         except AssertionError:
             print("AssertionError:\tx and w arrays must be the same size.")
     else:
-        w = np.zeros(len(xs)) + 1
+        w = np.zeros(len(x)) + 1.
 
     # Important values for convenience
     a = np.sum(w)

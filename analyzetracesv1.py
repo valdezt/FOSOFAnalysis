@@ -34,6 +34,7 @@ numbx_key = 'Number of B_x Steps'
 numby_key = 'Number of B_y Steps'
 pre910onoff_key = 'Pre-Quench 910 On/Off'
 bundle_size_key = 'Number of Traces Between Switching Configurations'
+nummassflow_key = 'Number of Mass Flow Rate Steps'
 
 rep_columnname = 'Repeat'
 avg_columnname = 'Average'
@@ -247,6 +248,10 @@ def read_traces(directory):
     numberOfSamples = float(runDict[diginumsamples_key])
     numberOfMagneticFieldsx = float(runDict[numbx_key])
     numberOfMagneticFieldsy = float(runDict[numby_key])
+    if nummassflow_key in runDict.keys():
+        number_of_massflow_settings = float(runDict[nummassflow_key])
+    else:
+        number_of_massflow_settings = 1
     bundle_size = int(runDict[bundle_size_key])
     if runDict[pre910onoff_key] == True or runDict[pre910onoff_key] == 'True':
         pre910onoff = 2
@@ -257,7 +262,10 @@ def read_traces(directory):
     # Note that this is the number of lines that will exist in the data file
     # once the acquisition is complete. This value allows this program to
     # run concurrently with the acquisition.
-    numberOfLines = numberOfFrequencies*numberOfRepeats*numberOfAverages*numberOfOffsetFrequencies*2*pre910onoff*numberOfMagneticFieldsx*numberOfMagneticFieldsy
+    numberOfLines = numberOfFrequencies * numberOfRepeats*numberOfAverages * \
+                    numberOfOffsetFrequencies * 2 * \
+                    pre910onoff*numberOfMagneticFieldsx * \
+                    numberOfMagneticFieldsy * number_of_massflow_settings
 
     # Recording the binary directory
     binaryDirectory = 'Z:/' + directory
