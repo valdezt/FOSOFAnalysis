@@ -205,19 +205,24 @@ class FOSOFSummary(object):
             plt.errorbar(freqs, phases, yerr = errors, fmt = 'b.')
             plt.legend()
 
-    def plotlinecentres(self, separation, electric_field,
+    def plotlinecentres(self, separation, electric_field, accel_v,
                         c_h = None, averaging_method = None,
-                        num_freqs = None):
+                        freq_range = None, plotslope = False):
         '''
         Plots all of the line centres for a single separation and electric field
         amplitude.
         '''
+        if plotslope:
+            val_column = 'Slope [rad/MHz]'
+            err_column = 'Error in Slope [rad/MHz]'
+        else:
+            val_column = 'Resonant Frequency [MHz]'
+            err_column = 'Error in Resonant Frequency [MHz]'
 
         # Check that all lists or choices are valid
         summary = self.fosof_summary.copy()
         summary = summary.set_index('Waveguide Separation [cm]')
 
-        print(separation)
         if not (separation in summary.index.unique()):
             print("Could not find the listed waveguide separation.")
             return
@@ -231,12 +236,20 @@ class FOSOFSummary(object):
             return
 
         summary = summary.loc[electric_field]
+        summary = summary.set_index('Accelerating Voltage [kV]')
 
-        if not num_freqs == None:
+        if not (accel_v in summary.index.unique()):
+            print("Could not find the listed accelerating voltage.")
+            print(summary.index.unique())
+            return
+
+        summary = summary.loc[accel_v]
+
+        if not (freq_range == None):
             try:
-                summary = summary.loc[summary['Number Of Frequencies'] == int(num_freqs)]
+                summary = summary.loc[summary['Frequency Range [MHz]'] == str(freq_range)]
             except:
-                print('Could not filter to number of frequencies specified.')
+                print('Could not filter to frequency range specified.')
 
         if c_h == None:
             ch_list = list(summary['Combiner/Harmonic'].unique())
@@ -282,9 +295,9 @@ class FOSOFSummary(object):
 
                     # Find the statistical information
                     avg_std = ff.polyfit(range(len(this_plot)),
-                                         this_plot['Resonant Frequency [MHz]'].values,
+                                         this_plot[val_column].values,
                                          0,
-                                         w = 1./this_plot['Error in Resonant Frequency [MHz]'].values**2)
+                                         w = 1./this_plot[err_column].values**2)
                     print(avg_std)
                     avg = avg_std[0][0]
                     std = avg_std[3][0]
@@ -293,16 +306,20 @@ class FOSOFSummary(object):
                     chi2 = avg_std[1]
                     probchi2 = avg_std[2]
                     maxval = len(this_plot)
-                    label = 'Resonant Frequency = ' + str(round(avg,4)) + \
-                            ' +/- ' + str(round(std,4)) + ' MHz\n$\chi^2$ = ' + \
+                    val_name = val_column[:val_column.find('[') - 1]
+                    val_units = val_column[val_column.find('[') + 1: \
+                                           val_column.find(']')]
+                    label = val_name + ' = ' + str(round(avg,4)) + \
+                            ' +/- ' + str(round(std,4)) + ' ' + \
+                            val_units + '\n$\chi^2$ = ' + \
                             str(round(chi2,4)) + '\nP($\chi^2$) = ' + \
                             str(round(probchi2,4))
 
                     # Plot the individual points nicely.
                     plt.subplot(npo2, npo2, counter)
                     plt.errorbar(range(maxval),
-                                 this_plot['Resonant Frequency [MHz]'].values,
-                                 yerr = this_plot['Error in Resonant Frequency [MHz]'].values,
+                                 this_plot[val_column].values,
+                                 yerr = this_plot[err_column].values,
                                  fmt = 'r.'
                                 )
 
@@ -311,14 +328,14 @@ class FOSOFSummary(object):
                     plt.plot([-1, maxval], [avg_upper, avg_upper], 'b--',
                              [-1, maxval], [avg_lower, avg_lower], 'b--')
                     plt.xlabel('Trial #')
-                    plt.ylabel('Resonant Frequency (+ Blind) [MHz]')
+                    plt.ylabel(val_column)
                     plt.legend()
                     counter += 1
         plt.show()
 
-    def plotlinecentres_e(self, separation,
-                          electric_fields = None, avg = False,
-                          c_h = None, averaging_method = None):
+    def plotlinecentres_e(self, separation, accel_vs = None,
+                          electric_fields = None, c_h = None,
+                          averaging_method = None, freq_range = None):
         '''
         Plots all of the line centres for a single separation and electric field
         amplitude. This function will first average the resonant frequencies to
@@ -386,6 +403,14 @@ class FOSOFSummary(object):
         else:
             avgmethod_list = [averaging_method]
 
+        if not (type(freq_range) == type(None)):
+            try:
+                print("SELECTING FREQ RANGE")
+                print(summary['Frequency Range [MHz]'])
+                summary = summary.loc[summary['Frequency Range [MHz]'] == str(freq_range)]
+            except:
+                print("Could not find frequency range specified.")
+
         all_chavg = [zip(x, avgmethod_list) \
                       for x in \
                       itertools.permutations(ch_list, len(avgmethod_list))]
@@ -435,8 +460,7 @@ class FOSOFSummary(object):
                 try:
                     avg_std = ff.polyfit(range(len(this_plot.loc[index])),
                                          this_plot.at[index,'Resonant Frequency [MHz]'],
-                                         0,
-                                         w = 1./this_plot.at[index,'Error in Resonant Frequency [MHz]']**2)
+                                         0, w = 1./this_plot.at[index,'Error in Resonant Frequency [MHz]']**2)
                     total_chi2 += avg_std[1] * (len(this_plot.loc[index]) - 1)
                 except TypeError:
                     pass
@@ -448,8 +472,6 @@ class FOSOFSummary(object):
 
             # Compute the total REDUCED chi-square statistic
             total_chi2 = total_chi2 / (len(this_plot) - len(electric_fields))
-            print("Total Chi^2")
-            print(total_chi2)
 
             # Expand the error bars of each individual point by the
             # sqrt of the total chi-square
@@ -524,24 +546,9 @@ class FOSOFDataSet(object):
         parameters for the FOSOF lineshape, and time series data.
         '''
 
-        # self.fitdata = pd.read_csv(self.location + 'fitdata.csv',
-        #                            converters = {"Least-Squares Fit" : ast.literal_eval,
-        #                                          "Parameter Error" : ast.literal_eval})
-        #
-        # self.phasedata = pd.read_csv(self.location + 'phasedata.csv')
-        #
-        # self.t_avg = pd.read_csv(self.location + 't_avgd_data.csv',
-        #                          header = [0,1], index_col = range(6))
-        # self.tf_avg = pd.read_csv(self.location + 'tf_avgd_data.csv',
-        #                           header = [0,1], index_col = range(7))
-        # self.tfab_avg = pd.read_csv(self.location + 'tfab_avgd_data.csv',
-        #                             header = [0,1], index_col = range(8))
-
         # Analyze or read in the data sets if already analyzed
         self.dataset_0 = DataSet(locations[0][0], descrim = descrim,
                                  splittime = splittime)
-        self.dataset_pi = DataSet(locations[1][0], descrim = descrim,
-                                  splittime = splittime)
         if len(locations[0]) > 1:
             for loc in locations[0][1:]:
                 ds0 = DataSet(loc, descrim = descrim, splittime = splittime)
@@ -551,6 +558,10 @@ class FOSOFDataSet(object):
                 self.dataset_0.t_avg = self.dataset_0.t_avg.append(ds0.t_avg)
                 self.dataset_0.tf_avg = self.dataset_0.tf_avg.append(ds0.tf_avg)
                 self.dataset_0.tfab_avg = self.dataset_0.tfab_avg.append(ds0.tfab_avg)
+
+        self.dataset_pi = DataSet(locations[1][0], descrim = descrim,
+                                  splittime = splittime)
+        if len(locations[1]) > 1:
             for loc in locations[1][1:]:
                 dspi = DataSet(loc, descrim = descrim, splittime = splittime)
                 self.dataset_pi.timestamp = self.dataset_pi.timestamp + ", " + dspi.timestamp
@@ -560,10 +571,12 @@ class FOSOFDataSet(object):
                 self.dataset_pi.tf_avg = self.dataset_pi.tf_avg.append(dspi.tf_avg)
                 self.dataset_pi.tfab_avg = self.dataset_pi.tfab_avg.append(dspi.tfab_avg)
 
-        print(self.dataset_0.phasedata.columns)
-        self.num_frequencies = len(self.dataset_0.phasedata.index.unique())
-        self.timestamp = self.dataset_0.timestamp + " - " + \
-                         self.dataset_pi.timestamp
+        if len(self.dataset_0.timestamp) > 92:
+            self.timestamp = self.dataset_0.timestamp[:89] + ",,, - " + \
+                             self.dataset_pi.timestamp[:89] + ",,,"
+        else:
+            self.timestamp = self.dataset_0.timestamp + " - " + \
+                             self.dataset_pi.timestamp
         if os.path.exists(fosof_summary_file):
             summary_data = pd.read_csv(fosof_summary_file) \
                              .set_index('Dataset Timestamp')
@@ -571,6 +584,16 @@ class FOSOFDataSet(object):
             summary_data = pd.DataFrame()
         self.location = analyzed_data_location + self.timestamp + \
                         " - Zero - Pi/"
+
+        # Determine integer frequency range for summary file
+        min_freq = min(self.dataset_0.phasedata.index.values)
+        max_freq = max(self.dataset_0.phasedata.index.values)
+        print(min_freq)
+        self.freq_range = max_freq - min_freq
+        self.freq_range = str(int(round(self.freq_range,0)))
+
+        if self.dataset_0.timestamp[13] == "c":
+            self.freq_range = self.freq_range + "c"
 
         # If the data has already been analyzed, ask the user if they want to
         # analyze it again.
@@ -696,6 +719,10 @@ class FOSOFDataSet(object):
                                'Dataset Type' : 'Normal',
                                'Resonant Frequency [MHz]' : self.fitdata.iloc[i]['Resonant Frequency [MHz]'],
                                'Error in Resonant Frequency [MHz]' : self.fitdata.iloc[i]['Error in Resonant Frequency [MHz]'],
+                               'Slope [rad/MHz]' : self.fitdata.iloc[i]['Least-Squares Fit'][0],
+                               'Error in Slope [rad/MHz]' : self.fitdata.iloc[i]['Parameter Error'][0],
+                               'Y-Intercept [rad]' : self.fitdata.iloc[i]['Least-Squares Fit'][1],
+                               'Error in Y-Intercept [rad]' : self.fitdata.iloc[i]['Parameter Error'][1],
                                'Chi Squared' : self.fitdata.iloc[i]['Chi Squared'],
                                'Combiner/Harmonic' : self.fitdata.iloc[i]['Combiner/Harmonic'],
                                'Averaging Method' : self.fitdata.iloc[i]['Averaging Method'],
@@ -704,7 +731,9 @@ class FOSOFDataSet(object):
                                'B_y [Gauss]' : self.fitdata.iloc[i]['B_y [Gauss]'],
                                'Pre-Quench 910 State' : self.fitdata.iloc[i]['Pre-Quench 910 State'],
                                'Mass Flow Rate [CC]' : self.fitdata.iloc[i]['Mass Flow Rate [CC]'],
-                               'Number Of Frequencies' : self.num_frequencies
+                               'Frequency Range [MHz]' : self.freq_range,
+                               'Accelerating Voltage [kV]' : self.dataset_0 \
+                                                                 .rundict_parameters["Accelerating Voltage [kV]"]
                                }
 
             ch_summary_data = pd.Series(ch_summary_data,
@@ -753,6 +782,8 @@ class FOSOFDataSet(object):
         '''
 
         # Sort by frequency
+        zero_data[ff.frequency_columnname] = [round(f, 4) for f in zero_data[ff.frequency_columnname].values]
+        pi_data[ff.frequency_columnname] = [round(f, 4) for f in pi_data[ff.frequency_columnname].values]
         x_0 = zero_data.set_index(ff.frequency_columnname)
         x_pi = pi_data.set_index(ff.frequency_columnname)
 
@@ -763,8 +794,7 @@ class FOSOFDataSet(object):
                                         phasen_column : []})
         for frequency in x_0.index.unique():
             if frequency in x_pi.index.unique():
-                phaseavg = (x_0.at[frequency, phaseaverage_column] - x_pi.at[frequency, phaseaverage_column])
-                phaseavg = ff.mod_wrap(phaseavg,-1)/2
+                phaseavg = (x_0.at[frequency, phaseaverage_column] - x_pi.at[frequency, phaseaverage_column])/2
                 phaseerr = np.sqrt(x_0.at[frequency, phaseerr_column]**2 + x_pi.at[frequency, phaseerr_column]**2)/2
                 phasen = x_0.at[frequency, phasen_column] + x_pi.at[frequency, phasen_column]
                 freq_dict = {ff.frequency_columnname : frequency,
@@ -778,6 +808,7 @@ class FOSOFDataSet(object):
         for col in type_columns:
             x_zero_minus_pi[col] = x_0[col].values[0]
 
+        # x_zero_minus_pi[phaseaverage_column] = x_zero_minus_pi[phaseaverage_column].values
         x_zero_minus_pi = x_zero_minus_pi.set_index(ff.frequency_columnname)
 
         return x_zero_minus_pi
@@ -788,7 +819,7 @@ class DataSet(object):
     functions, plotted images, etc.
     '''
 
-    def __init__(self, location, descrim = np.pi/3, splittime = 10):
+    def __init__(self, location, descrim = np.pi, splittime = 10):
         '''
         Reads and analyzes the data from the data set located at
         C:/Users/Travis/Google Drive/Travis Code/location/data_TV.csv.
@@ -818,6 +849,7 @@ class DataSet(object):
         with open(self.location + "/rundict_parameters.txt") as f:
             self.rundict_parameters = json.load(f)
 
+        print(location)
         if location[:13] in summary_data['Dataset Timestamp'].values:
             yn = raw_input("This data set has already been analyzed. Do you" \
                            " want to analyze it again? [Y/N]\t\t")
@@ -919,11 +951,14 @@ class DataSet(object):
                                         columns = ff.bytimefreqab_columns)
         self.tfab_avg.to_csv(self.location + 'tfab_avgd_data.csv')
         print('Done.')
+        if not ('Accelerating Voltage [kV]' in self.rundict_parameters.keys()):
+            self.rundict_parameters['Accelerating Voltage [kV]'] = 49.87
 
         newdata_dict = {'Folder' : self.location,
                         'Configuration' : self.rundict_parameters["Configuration"],
                         'Peak RF Field Amplitude [V/cm]' : self.rundict_parameters["Waveguide Electric Field [V/cm]"],
                         'Waveguide Separation [cm]' : self.rundict_parameters['Waveguide Separation [cm]'],
+                        'Accelerating Voltage [kV]' : self.rundict_parameters['Accelerating Voltage [kV]'],
                         'Dataset Type' : self.datatype
                         }
         newdata = pd.Series(newdata_dict,
@@ -969,10 +1004,7 @@ class DataSet(object):
         # Averaging data within trace bundles
         data = data.apply(self.descrim_average,
                           col = columnname)
-
         print('Sorting by trace bundle')
-        # Subtracting a_data[trace_bundle] - b_data[trace_bundle] for each
-        # frequency within each repeat
         data = data.reset_index().groupby(ff.tracebundle_groupby_columns)
         print('Sorted. Subtracting.')
         data = data.apply(self.a_minus_b)
@@ -1013,6 +1045,10 @@ class DataSet(object):
         print('Separating by frequency only...')
         # Averaging all data together for each frequency by keeping individual
         # uncertainties
+        # print(data[phaseerr_column].values)
+        # plt.plot(data[ff.frequency_columnname].values,
+        #          data[phaseaverage_column].values, 'r.')
+        # plt.show()
         data = data.groupby(ff.freq_groupby_columns)
         data = data.apply(self.descrim_average,
                           col = phaseaverage_column,
@@ -1043,6 +1079,7 @@ class DataSet(object):
         grouped_data = data.groupby(ff.type_groupby_columns)
         grouped_data_rms = data_rms.groupby(ff.type_groupby_columns)
         data = data.reset_index().set_index(ff.type_groupby_columns)
+
         data_rms = data_rms.reset_index().set_index(ff.type_groupby_columns)
 
         fitdata_columns = ["Least-Squares Fit", "Chi Squared",
@@ -1059,11 +1096,13 @@ class DataSet(object):
             order = 1
 
         for group in grouped_data.groups.keys():
-            data.at[group,phaseaverage_column] = ff.mod_wrap(data.at[group,phaseaverage_column], n = -1)
             group_data = grouped_data.get_group(group).reset_index().set_index(ff.frequency_columnname)
             group_data[phaseaverage_column] = ff.mod_wrap(group_data[phaseaverage_column].values, -1)
-            fitdata = ff.polyfit(group_data.index - 910.,
-                                 ff.mod_wrap(group_data[phaseaverage_column],-1),
+            phases = ff.unwrap_fosof_line(group_data[phaseaverage_column].values, group_data.index.values)[:, 1]
+            group_data[phaseaverage_column] = phases / 2.
+            data.at[group, phaseaverage_column] = phases / 2.
+            fitdata = ff.polyfit(group_data.index.values - 910.,
+                                 phases,
                                  order,
                                  w = 1./group_data[phaseerr_column].values**2)
             fitdata = [convert_to_lists(x) for x in fitdata]
@@ -1074,8 +1113,11 @@ class DataSet(object):
             data_rms.at[group,phaseaverage_column] = ff.mod_wrap(data_rms.at[group,phaseaverage_column], n = -1)
             group_data_rms = grouped_data_rms.get_group(group).reset_index().set_index(ff.frequency_columnname)
             group_data_rms[phaseaverage_column] = ff.mod_wrap(group_data_rms[phaseaverage_column].values, -1)
-            fitdata_rms = ff.polyfit(group_data_rms.index - 910.,
-                                     ff.mod_wrap(group_data_rms[phaseaverage_column],-1),
+            phases = ff.unwrap_fosof_line(group_data_rms[phaseaverage_column].values, group_data_rms.index.values)[:, 1]
+            group_data_rms[phaseaverage_column] = phases / 2.
+            data_rms.at[group, phaseaverage_column] = phases / 2.
+            fitdata_rms = ff.polyfit(group_data_rms.index.values - 910.,
+                                     phases,
                                      order,
                                      w = 1./group_data_rms[phaseerr_column].values**2)
 
@@ -1251,6 +1293,9 @@ class DataSet(object):
                 else:
                     fosofphasestd = np.nan
         else:
+            print(v)
+            print(spread)
+            print(self.descrim)
             f = open(self.errorfile,'a')
             for c in ff.tracebundle_ab_groupby_columns:
                 if c in x.columns:
@@ -1279,8 +1324,8 @@ class DataSet(object):
 
         x_a_minus_b = {}
         x_a_minus_b[phaseaverage_column] = (x_a[phaseaverage_column].values - x_b[phaseaverage_column].values)[0]
-        x_a_minus_b[phaseaverage_column] = ff.mod_wrap(x_a_minus_b[phaseaverage_column],-1)/2
-        x_a_minus_b[phaseerr_column] = (np.sqrt(x_a[phaseerr_column].values**2 + x_b[phaseerr_column].values**2))[0]/2
+        #x_a_minus_b[phaseaverage_column] = ff.mod_wrap(x_a_minus_b[phaseaverage_column],0)
+        x_a_minus_b[phaseerr_column] = (np.sqrt(x_a[phaseerr_column].values**2 + x_b[phaseerr_column].values**2))[0]/2.
         x_a_minus_b[phasen_column] = min(x_a[phasen_column].values, x_b[phasen_column].values)[0]
 
         return pd.Series(x_a_minus_b)
@@ -1288,8 +1333,13 @@ class DataSet(object):
     def check_spread(self, x, mod = True):
         '''Calculates the maximum spread of a set of data.'''
 
+        # Check the spread by wrapping the values from [0, 2*pi) and from
+        # [-pi, pi) in case values are right near the edge of one of the ranges
         if mod:
-            tocheck = ff.mod_wrap(x, -1)
+            tocheck_1 = ff.mod_wrap(x, -1)
+            tocheck_2 = ff.mod_wrap(x, 0)
+            return min(abs(max(tocheck_1) - min(tocheck_1)),
+                       abs(max(tocheck_2) - min(tocheck_2)))
         else:
             tocheck = x
         return abs(max(tocheck) - min(tocheck))
@@ -1389,14 +1439,49 @@ def main():
     files_to_read = f.readlines()
     f.close()
 
-    for filename in files_to_read:
-        if sys.argv[1] == '-r':
+
+    if sys.argv[1] == '-r':
+        for filename in files_to_read:
             ds = DataSet(filename[:-1])
-        elif sys.argv[1] == '-zp':
+    elif sys.argv[1] == '-zp':
+        for filename in files_to_read:
             filename = filename.split(';')
             filename[0] = eval(filename[0])
             filename[1] = eval(filename[1])
-            ds = FOSOFDataSet([filename[0], filename[1]])
+            ds = FOSOFDataSet([filename[0], filename[1]], descrim = np.pi)
+    elif sys.argv[1] == 'ls':
+        dataset = sys.argv[2] # dataset_timestamp in fosof_summary.csv
+        type = sys.argv[3] # r or zp
+        if type == 'r':
+            summary = FOSOFSummary(fosof = False)
+        elif type == 'zp':
+            summary = FOSOFSummary()
+        else:
+            print(type)
+            sys.exit('Could not decide which type of summary to open. ' \
+                     'Try using "zp" or "r" as the type. See documentation ' \
+                     'for more informaton.')
+        summary.plotlineshape(dataset)
+    elif sys.argv[1] == 'lc':
+        separation = int(sys.argv[2]) # Waveguide separation [cm]
+        e_field = float(sys.argv[3]) # Electric field amplitude [V/cm]
+        accel_v = float(sys.argv[4])
+        plot_slope = False
+        if len(sys.argv) > 5:
+            plot_slope = eval(sys.argv[5])
+
+        freq_range = None
+        if len(sys.argv) > 6:
+            freq_range = str(sys.argv[6])
+        summary = FOSOFSummary()
+        summary.plotlinecentres(separation, e_field, accel_v,
+                                plotslope = plot_slope, freq_range = freq_range)
+    elif sys.argv[1] == 'lc_e':
+        separation = int(sys.argv[2]) # Waveguide separation [cm]
+        if len(sys.argv) > 3:
+            freq_range = str(sys.argv[3])
+        summary = FOSOFSummary()
+        summary.plotlinecentres_e(separation, freq_range = freq_range)
 
 if __name__ == '__main__':
     main()

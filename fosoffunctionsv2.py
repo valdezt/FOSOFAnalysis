@@ -262,10 +262,19 @@ def unwrap_fosof_line(phase_data, freq_data, discont = np.pi):
 
     # "Unwraps" the data by changing discontinuities larger than discont to
     # their 2*pi compliment
-    data = np.array(sorted(dict(zip(freq_data, phase_data)).items()))
-    unwrapped = np.unwrap(data[:,1], discont = discont)
+    data = dict(zip(freq_data, phase_data))
+    central_value = data[sorted(data.keys())[(len(data.keys())+1)//2]]
+    for freq, phase in data.iteritems():
+        if abs(phase - central_value) > discont:
+            n = (central_value - phase) / (2 * np.pi)
+            n = int(round(n,0))
+            data[freq] = phase + 2. * np.pi * n
+    unwrapped = np.array(sorted(data.items()))
 
-    return dict(zip(data[:,0],unwrapped))
+    # plt.plot(unwrapped[:,0],unwrapped[:,1],'r.')
+    # plt.show()
+
+    return unwrapped
 
 def average_and_std(x, w = None, n = 0, phases = True):
     '''
@@ -461,3 +470,21 @@ def dx0(x, y, w = None, chi2 = 1):
     dx0_squared = (b**2 - a*d)**2 * (a*e**2 - 2*b*e*c + d*c**2)/(b*c-a*e)**4
 
     return np.sqrt(chi2*dx0_squared)
+
+def chi2(y, yhat, err = None, dof_minus = 1):
+    '''
+    Calculates the chi^2 statistic for a set of predicted values yhat with error
+    err vs measured values y. The total degrees of freedom will be decreased by
+    dof_minus when returning the chi^2. This function will also calculate the
+    probability of obtaining this chi^2 given the number of observations and
+    degrees of freedom.
+    '''
+
+    if type(err) == type(None):
+        err = np.ones(len(y))
+
+    sumsq = np.sum(((y-yhat)/err)**2)
+    chi2dist = stats.chi2(len(y) - dof_minus)
+    chi2prob = chi2dist.sf(sumsq)
+
+    return sumsq / (len(y) - dof_minus), chi2prob
