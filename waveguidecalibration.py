@@ -27,17 +27,11 @@ data = pd.read_csv(dataset_directory + "data.txt", comment = "#")
 #%%
 
 print(len(data))
-print(max(abs(data['Digitizer DC (Generator Off) [V]'])))
-print(max(abs(data['Digitizer DC (Generator On) [V]'])))
-print(max(abs(data['Digitizer STD (Generator Off) [V]'])))
-print(max(abs(data['Digitizer STD (Generator On) [V]'])))
 data = data.loc[abs(data['Digitizer DC (Generator Off) [V]']) <= 16.0]
 data = data.loc[abs(data['Digitizer STD (Generator Off) [V]']) <= 1.0]
 
 data = data.loc[abs(data['Digitizer DC (Generator On) [V]']) <= 16.0]
 data = data.loc[abs(data['Digitizer STD (Generator On) [V]']) <= 1.0]
-print(len(data))
-#data = data.loc[data['Repeat'] <= 6]
 print(len(data))
 print(max(data['Repeat']))
 
@@ -107,13 +101,6 @@ plt.ylim(-0.373,-0.37)
 plt.xlim(4.3,4.4)
 plt.show()
 
-# plt.errorbar(power_detector_calibration_data[power_calib_dbm_column],
-#              power_detector_calibration_data[power_calib_det_volt] - p(power_detector_calibration_data[power_calib_dbm_column]))
-# plt.xlabel("RF Power [dBm]")
-# plt.ylabel("Power Detector Voltage [V]")
-# plt.title("RF Power Detector Calibration")
-# plt.show()
-
 print(get_power_dbm(p,-0.5))
 
 #%%
@@ -173,31 +160,6 @@ for frequency in np.sort(frequencies):
     a_frequency_by_power = a_frequency.reset_index().groupby(power_dbm_column).agg([np.mean,stdm])
     set_power = a_frequency[power_dbm_column].unique()
 
-    #fit = np.polyfit(a_frequency_by_power['Detected Power (RF Generator ON) [sqrtW]']['mean'].values, \
-    #                 a_frequency_by_power['ON/OFF ratio']['mean'].values, 1, \
-    #                 w = 1.0/a_frequency_by_power['ON/OFF ratio']['stdm'].values**2)
-    #
-    #poly = np.poly1d(fit)
-
-    # plt.figure(figsize=[15,15])
-    # plt.title(str(frequency) + "MHz Waveguide Quench")
-    # plt.ylabel("Fractional Population Remaining")
-    # plt.xlabel("Detected RF Power [sqrtW]")
-    # #plt.plot(a_frequency_by_power['Detected Power (RF Generator ON) [sqrtW]']['mean'].values, \
-    # #         poly(a_frequency_by_power['Detected Power (RF Generator ON) [sqrtW]']['mean'].values))
-    # plt.errorbar(a_frequency_by_power[power_sqrtw_column]['mean'].values, \
-    #              a_frequency_by_power[on_off_column]['mean'].values,fmt='b.', \
-    #              yerr=a_frequency_by_power[on_off_column]['stdm'].values, \
-    #              xerr=a_frequency_by_power[power_sqrtw_column]['stdm'].values)
-    # plt.show()
-
-#     print(p[1],p[0])
-#
-# print(dBm_to_watts(p(2.11)+40))
-# print(dBm_to_watts(p(.7)+40))
-# print(p(0.7)-p(2.11))
-# print(min(a_frequency_by_power[on_off_column]['mean'].values))
-
 #%%
 
 # Fit the simulated quench file to a polynomial of order n
@@ -214,14 +176,12 @@ efs = np.linspace(0,60,100)
 plt.plot(sim_file.columns.astype('float'),sim_file.loc[910.0],'r.')
 plt.plot(efs,sim_p(efs),'g-')
 plt.plot(sim_file.columns.astype('float'),sim_file.loc[912.0],'b.')
-#plt.plot(sim_file.columns.astype('float'),sim_file.loc[912.0]-sim_file.loc[908.0],'b.')
 plt.show()
 
 plt.title("Fractional Population\nvs.\nElectric Field Magnitude Squared\n(Simulated)")
 plt.xlabel("Electric Field Magnitude [$V^2/cm^2$]")
 plt.ylabel("Fractional Population")
 plt.plot(sim_file.columns.astype('float')**2,sim_file.loc[910.0],'r.')
-#plt.plot(efs,sim_p(efs),'g-')
 plt.show()
 
 #%%
@@ -279,12 +239,6 @@ for frequency in np.sort(frequencies):
     # Fit the simulated quench file to a polynomial of order n
     print(str(round(frequency,1)) +" MHz")
 
-    # Temporary (until Alain gets back to me)
-    # if frequency < 908.0:
-    #     sim_frequency = 908.0
-    # elif frequency > 912.0:
-    #     sim_frequency = 912.0
-    # else:
     sim_frequency = frequency
 
     # Obtain the proper simulation file and fit the simulation data to an 8th order polynomial
@@ -292,16 +246,6 @@ for frequency in np.sort(frequencies):
     sim_poly = np.polyfit(sim_file.columns.astype('float'),
                           sim_file.loc[sim_frequency], n)
     sim_p = np.poly1d(sim_poly)
-
-    # plt.figure(figsize=[15,15])
-    # # Plot the simulation and the fit
-    # plt.title("Simulated Fractional Population vs. Electric Field\nfor "+str(frequency)+" MHz")
-    # plt.ylabel("DC ON/OFF Ratio (Fractional Population)")
-    # plt.xlabel("Electric Field Amplitude $\\left[ V/cm \\right]$")
-    # efields = np.linspace(-1,100,1000)
-    # plt.plot(sim_file.columns.astype('float'),sim_file.loc[frequency],'r.')
-    # plt.plot(efields, sim_p(efields))
-    # plt.show()
 
     # Get the data for the current carrier frequency from the data file
     a_frequency = frequency_separated_data.get_group(frequency)
@@ -465,7 +409,6 @@ for frequency in np.sort(frequencies):
         plt.ylabel("$\sqrt{\\mathrm{Power}}\\ \\left[ \\sqrt{W} \\right]$")
         plt.plot(power_range, calib_p(power_range), label = "Fit")
         plt.plot(a_frequency['Electric Field (Shifted) [V/cm]'].values[:-max(1,points_to_disregard)], a_frequency.index[:-max(1,points_to_disregard)], 'r.', label = "Shifted Data")
-        # plt.plot(a_frequency['Electric Field [V/cm]'].values[:-max(1,points_to_disregard)], a_frequency.index[:-max(1,points_to_disregard)], 'b.', label = "Measured Data")
         plt.legend()
         plt.savefig('./WGCalFigs/Cal_'+str(round(frequency, 2)) + '_' + waveguide_to_analyze + '_SHIFTED.png')
         plt.clf()
@@ -487,26 +430,6 @@ function_table.columns = ["Carrier Frequency [MHz]", "Shifted?", "5.0 V/cm", "6.
                           "26.0 V/cm", "27.0 V/cm", "28.0 V/cm", "29.0 V/cm", "30.0 V/cm"]
 
 function_table = function_table.set_index('Shifted?')
-
-#%%
-
-calib_p_inv[2](np.sqrt(dBm_to_watts(-7.5)))
-
-#%%
-
-df = [-0.05,5.3,26.1,50.6,114.2]
-p = np.array([5.245,8.222,14.416,18.615,24.868])**2
-w = np.array([100,100,1,1,1])
-ps = np.linspace(0,25**2,100)
-ft = np.poly1d(np.polyfit(p[1:], df[1:], 2))
-plt.plot(p[1:], df[1:], 'r.')
-#plt.xlim(0,70)
-#plt.ylim(0,7)
-plt.plot(ps, ft(ps))
-plt.show()
-plt.plot(p[1:], ft(p[1:]) - df[1:], 'r.')
-plt.show()
-ft(8.**2)-0.1
 
 #%%
 
