@@ -22,6 +22,7 @@ import scipy.stats as st
 from numpy import sin, cos, pi
 import os, sys, time, shutil
 import json
+from defaultfolders import *
 
 freqnum_key = 'Number of Frequency Steps'
 repnum_key = 'Number of Repeats'
@@ -35,6 +36,8 @@ numby_key = 'Number of B_y Steps'
 pre910onoff_key = 'Pre-Quench 910 On/Off'
 bundle_size_key = 'Number of Traces Between Switching Configurations'
 nummassflow_key = 'Number of Mass Flow Rate Steps'
+separation_key = "Waveguide Separation [cm]"
+efield_key = "Waveguide Electric Field [V/cm]"
 
 rep_columnname = 'Repeat'
 avg_columnname = 'Average'
@@ -47,12 +50,9 @@ pcomb2fname_columnname ='RF Power Combiner R Trace Filename'
 pcomb1fname2_columnname = 'RF Power Combiner I Digi 2 Trace Filename'
 cgxpressure_columnname = "Charge Exchange Pressure [torr]"
 massflowrate_columnname = "Mass Flow Rate [CC]"
+wg_A_power_columnname = "Waveguide A Power Reading  [V]"
+wg_B_power_columnname = "Waveguide B Power Reading [V]"
 
-# To make this program as general as possible, I've included all the columns
-# necessary for every type of data we've taken so far. This includes:
-# Regular FOSOF (no calibration)
-# AM Modulation Calibration
-# Switching Offset Cavity Calibration
 newColumns = ["Repeat",
               "Average",
               "Sub-Configuration",
@@ -120,8 +120,18 @@ newColumns = ["Repeat",
               "Phase Difference (Detector - Mixer 2) [rad]"
               ]
 
+fit_df = pd.read_csv(analysis_TV + "WCPopVsPDetV/WGFits.csv")
+fit_df.set_index('Frequency [MHz]', inplace = True)
+fit_df.fillna(0.0, inplace = True)
+fit_df = fit_df.applymap(convert_to_poly)
+
+def convert_to_poly(x):
+    if type(x) == str:
+        return np.poly1d(eval(x))
+    else:
+        return np.poly1d(x)
+
 def powerSpectrum(y,samplingRate):
-    #win = signal.get_window( ('gaussian',600/10),600 )
     Fy = np.fft.fft(y)/np.sqrt(len(y) * samplingRate)
     f = np.fft.fftfreq(len(y),1./samplingRate)
     return f,np.abs(Fy)**2
@@ -189,6 +199,45 @@ def get_file_data(filename):
 
     return data, run_dict
 
+def get_phase_shift(E_nominal, freq, pd_voltage_A, pd_voltage_B, calibration,
+                    separation):
+    '''
+    Based on the simulated fractional population, the calibration data (V vs
+    population), and the power detector voltages for the current trace, this
+    function calculates the phase shift to apply due to uneven power, or
+    incorrect power. The correct sign will have to be applied to account for
+    configuration (0 or pi) and subconfiguration (A or B).
+    '''
+
+    # Which fits to use; fit_df is indexed by frequency in MHz
+    fits_row = fit_df.loc[freq]
+
+    # Extract experimental fit
+    sim_q_fit = fits_row["Quench Simulation Fit"]
+    sim_fosof_fit = fits_row["FOSOF Simulation Fit " + str(separation) + " cm"]
+
+    # Determine the resulting population remaining based on power detector
+    # reading for each channel
+    exp_pop_A = fits_row[" ".join([calibration, "A"])](pd_voltage_A)
+    exp_pop_B = fits_row[" ".join([calibration, "B"])](pd_voltage_B)
+
+    # From determined population and simulation data, find the actual E^2 that
+    # was used.
+    exp_pow_A = scopt.fsolve(lambda x: exp_pop_A - sim_q_fit(x), [0.])[0]
+    exp_pow_B = scopt.fsolve(lambda x: exp_pop_B - sim_q_fit(x), [0.])[0]
+
+    # Justified based on simulation results
+    avg_exp_pow = np.average([exp_pow_A, exp_pow_B])
+
+    # Phase difference between target power and actual power. This is just an
+    # approximation; it works so long as avg_exp_pow is near E_nominal**2.
+    actual_atomic_phase = sim_fosof_fit(avg_exp_pow)
+    target_atomic_phase = sim_fosof_fit(E_nominal**2)
+
+    # Making sure we're not getting nonsense
+    if (actual_atomic_phase != 0) and (target_atomic_phase != 0):
+        return actual_atomic_phase - target_atomic_phase
+
 def read_traces(directory):
 
     print("Beginning analysis...")
@@ -198,10 +247,10 @@ def read_traces(directory):
     # example, it contains how many carrier and offset frequencies were used.
     # It also contains all data that was not collected by the digitizer
     # (e.g. power meter voltages collected by the LabJacks, etc.).
-    filename = "Y:/data/" + directory + '/data.txt'
+    filename = data_LS + directory + '/data.txt'
     runParametersDirectory = directory + '/run parameters/'
     outFilename = filename[filename.rfind("/")+1:filename.rfind(".txt")] + ".TV"
-    outFileDirectory = "C:/Users/Travis/Google Drive/Travis Code/"+directory
+    outFileDirectory = base_folder_TV + directory
     originalDirectory = os.getcwd()
 
     numberOfFilesFinished = 0
@@ -215,8 +264,8 @@ def read_traces(directory):
 
     if not os.path.exists(outFileDirectory):
         os.makedirs(outFileDirectory)
-        # Creating the data table to be saved to a txt and csv file at the end of the
-        # analysis
+        # Creating the data table to be saved to a txt and csv file at the end
+        # of the analysis
         dataTable = pd.DataFrame(columns = newColumns)
     elif os.path.exists(outFileDirectory) and os.path.exists(outFileDirectory+"/"+outFilename):
         os.chdir(outFileDirectory)
@@ -257,6 +306,9 @@ def read_traces(directory):
         pre910onoff = 2
     else:
         pre910onoff = 1
+
+    separation = int(runDict[separation_key])
+    electric_field = int(runDict[efield_key])
 
     # I use the number of lines to determine when the analysis has finished
     # Note that this is the number of lines that will exist in the data file
@@ -308,6 +360,8 @@ def read_traces(directory):
             average = data[avg_columnname][lineNumber]
             tracebundle = (average - 1) // bundle_size + 1
             carrierFrequency = data[freq_columnname][lineNumber]
+            wg_A_power = float(data[wg_A_power_columnname][lineNumber])
+            wg_B_power = float(data[wg_B_power_columnname][lineNumber])
 
             # Some of the older data sets do not have the offset frequency in
             # the columns. If it is not there, it will be in the header.
@@ -366,6 +420,9 @@ def read_traces(directory):
 
             print("FOSOF Current: " + str(fosofCurrent))
 
+            phase_shift = get_phase_shift(electric_field, carrierFrequency,
+                                          wg_A_power, wg_B_power, calibration,
+                                          separation)
             detectorMixerPhaseDifference = (fosofPhase - mixerPhase + 2.0 * np.pi) % (2.0 * np.pi)
             detectorMixerPhaseDifference2 = (fosofPhase2 - mixerPhase + 2.0 * np.pi) % (2.0 * np.pi)
 
