@@ -387,7 +387,7 @@ def read_traces(directory):
                           "trying again.")
                     time.sleep(5)
 
-            freqs,S = powerSpectrum(V1,sampling_rate)
+            freqs,S = power_spectrum(V1,sampling_rate)
 
             min_60 = int_of // 60
 
@@ -436,7 +436,7 @@ def read_traces(directory):
 
             # Same things for other channels. I should almost certainly make
             # this a function
-            freqs,S = powerSpectrum(V2,sampling_rate)
+            freqs,S = power_spectrum(V2,sampling_rate)
 
             m1d1_snr = np.sqrt(S[signal_index]) / \
                             np.average(np.sqrt(S[snr_noise_index]))
@@ -476,13 +476,13 @@ def read_traces(directory):
                           "trying again.")
                     time.sleep(5)
 
-            freqs,S = powerSpectrum(V3,sampling_rate)
+            freqs,S = power_spectrum(V3,sampling_rate)
 
             m2_snr = np.sqrt(S[signal_index]) / \
                             np.average(np.sqrt(S[snr_noise_index]))
             print("SIGNAL TO NOISE (Mixer 2): " + str(m2_snr))
 
-            freqs,S = powerSpectrum(V4,sampling_rate)
+            freqs,S = power_spectrum(V4,sampling_rate)
 
             m1d2_snr = np.sqrt(S[signal_index]) / \
                             np.average(np.sqrt(S[snr_noise_index]))
