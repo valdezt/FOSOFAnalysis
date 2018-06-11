@@ -21,6 +21,8 @@ import pandas as pd
 import scipy.stats as st
 from numpy import sin, cos, pi
 import os, sys, time, shutil
+from datetime import datetime as dt
+import scipy.optimize as scopt
 import json
 from defaultfolders import *
 
@@ -38,6 +40,7 @@ bundle_size_key = 'Number of Traces Between Switching Configurations'
 nummassflow_key = 'Number of Mass Flow Rate Steps'
 separation_key = "Waveguide Separation [cm]"
 efield_key = "Waveguide Electric Field [V/cm]"
+calibration_key = "Calibration Name"
 
 rep_columnname = 'Repeat'
 avg_columnname = 'Average'
@@ -114,10 +117,12 @@ new_columns = ["Repeat",
                "Mixer 1 Digitizer 2 DC Offset [V]",
                "Mixer 1 Digitizer 2 SNR (Approx)",
                "Phase Difference (Detector - Mixer 1) [rad]",
+               "Phase Difference (Detector - Mixer 1, Corrected) [rad]",
                "Phase Difference (Detector 2nd Harmonic - Mixer 1) [rad]",
                "Phase Difference (Mixer 2 - Mixer 1) [rad]",
                "Digitizer Phase Difference (Digi 2 - Digi 1) [rad]",
-               "Phase Difference (Detector - Mixer 2) [rad]"
+               "Phase Difference (Detector - Mixer 2) [rad]",
+               "Phase Difference (Detector - Mixer 2, Corrected) [rad]"
                ]
 
 def convert_to_poly(x):
@@ -209,6 +214,7 @@ def get_phase_shift(E_nominal, freq, pd_voltage_A, pd_voltage_B, calibration,
     configuration (0 or pi) and subconfiguration (A or B).
     '''
 
+    freq = round(freq, 1)
     # Which fits to use; fit_df is indexed by frequency in MHz
     fits_row = fit_df.loc[freq]
 
@@ -248,7 +254,8 @@ def read_traces(directory):
     # It also contains all data that was not collected by the digitizer
     # (e.g. power meter voltages collected by the LabJacks, etc.).
     filename = data_LS + directory + '/data.txt'
-    outfile_name = filename[filename.rfind("/")+1:filename.rfind(".txt")] + ".TV"
+    outfile_name = filename[filename.rfind("/")+1:filename.rfind(".txt")] + \
+                    ".TV"
     outfile_directory = base_folder_TV + directory
 
     num_finished = 0
@@ -267,9 +274,9 @@ def read_traces(directory):
 
     # If the folder exists but not the file, create a new data frame
     elif not os.path.exists(outfile_directory+"/"+outfile_name):
-        os.chdir(outfile_directory)
         df = pd.DataFrame(columns = new_columns)
     else:
+        os.chdir(outfile_directory)
         df = pd.read_csv(outfile_name.replace(".TV","_TV.csv"))
         num_finished = len(df)
         df = df.drop("Unnamed: 0",axis=1)
@@ -297,6 +304,23 @@ def read_traces(directory):
     sampling_rate = float(run_dict[digisamplingrate_key])
     num_Bx = float(run_dict[numbx_key])
     num_By = float(run_dict[numby_key])
+
+    if calibration_key in run_dict.keys():
+        calibration = run_dict[calibration_key]
+    else:
+        date_of_dataset = directory[:13]
+        date_of_dataset = dt.strptime(date_of_dataset, "%y%m%d-%H%M%S")
+
+        # For legacy files
+        if date_of_dataset.date() < dt(2018,4,11).date():
+            calibration = "Calibration 180327"
+        elif date_of_dataset.date() < dt(2018,4,30).date():
+            calibration = "Calibration 180422"
+        elif date_of_dataset.date() < dt(2018,5,12).date():
+            calibration = "Calibration 180428"
+        else:
+            calibration = "Calibration 180512"
+
     if nummassflow_key in run_dict.keys():
         number_of_massflow_settings = float(run_dict[nummassflow_key])
     else:
@@ -335,6 +359,9 @@ def read_traces(directory):
     mixer_2_A = mixer_2_c = mixer_2_phi = \
     mixer_1_A = mixer_1_c = mixer_1_phi = mixer_phidiff = np.nan
 
+    num_finished_last = 0
+    waited = 0
+
     # While there is still data that has been or will be acquired but has not
     # been analyzed...
     while num_finished < num_lines:
@@ -354,7 +381,7 @@ def read_traces(directory):
             repeat = data[rep_columnname][line_n]
             average = data[avg_columnname][line_n]
             tracebundle = (average - 1) // bundle_size + 1
-            carrierFrequency = data[freq_columnname][line_n]
+            carrier_freq = data[freq_columnname][line_n]
             wg_A_power = float(data[wg_A_power_columnname][line_n])
             wg_B_power = float(data[wg_B_power_columnname][line_n])
 
@@ -364,7 +391,7 @@ def read_traces(directory):
 
             int_of = int(offsetFrequency) # For use with "fit()"
 
-            offsetChannel = data[abconfig_columnname][line_n]
+            subconfig = data[abconfig_columnname][line_n]
 
             # Acquire data from digitizer traces for FOSOF detector and
             # mixer.
@@ -449,15 +476,32 @@ def read_traces(directory):
 
             print("FOSOF Current: " + str(fosof_c))
 
-            # phase_shift = get_phase_shift(electric_field, carrierFrequency,
-            #                               wg_A_power, wg_B_power, calibration,
-            #                               separation)
+            # Determine amount by which the phase should be shifted due to
+            # incorrect power.
+            phase_shift = get_phase_shift(electric_field, carrier_freq,
+                                          wg_A_power, wg_B_power, calibration,
+                                          separation)
+            if "pi config" in directory:
+                sign_0_pi = -1
+            else:
+                sign_0_pi = 1
+
+            if subconfig == "A":
+                sign_A_B = 1
+            else:
+                sign_A_B = -1
+
+            phase_shift = phase_shift * sign_0_pi * sign_A_B
 
             # Taking differences and shifting back to the [0, 2*pi) range
             detector_mixer_phidiff = (fosof_phi - mixer_phi + 2.0 * np.pi) \
                                                     % (2.0 * np.pi)
             detector_mixer_phidiff2 = (fosof_phi2 - mixer_phi + 2.0 * np.pi) \
                                                 % (2.0 * np.pi)
+
+            detector_mixer_phidiff_c = detector_mixer_phidiff + phase_shift
+            detector_mixer_phidiff_c += 2. * np.pi
+            detector_mixer_phidiff_c = detector_mixer_phidiff_c % (2. * np.pi)
 
             # Digitizer 2
             filename_d2_c1 = data[pcomb2fname_columnname][line_n]
@@ -476,7 +520,7 @@ def read_traces(directory):
                           "trying again.")
                     time.sleep(5)
 
-            freqs,S = power_spectrum(V3,sampling_rate)
+            freqs, S = power_spectrum(V3,sampling_rate)
 
             m2_snr = np.sqrt(S[signal_index]) / \
                             np.average(np.sqrt(S[snr_noise_index]))
@@ -499,20 +543,25 @@ def read_traces(directory):
             digi_phidiff = (mixer_1_phi - mixer_phi) + 2.0 * np.pi
             digi_phidiff = digi_phidiff % (2. * np.pi) - np.pi
 
-            detector_mixer2_phase_difference = (fosof_phi - (mixer_2_phi - \
+            detector_mixer2_phidiff = (fosof_phi - (mixer_2_phi - \
                                                              digi_phidiff) + \
                                                              2.0 * np.pi) \
                                                              % (2.0 * np.pi)
 
-            analyzed_values = [tracebundle,
-                               fosof_A, fosof_phi, fosof_c, det_snr,
-                               fosof_A2, fosof_phi2, fosof_c2, det_snr_2nd,
-                               mixer_A, mixer_phi, mixer_c, m1d1_snr,
-                               mixer_2_A, mixer_2_phi, mixer_2_c, m2_snr,
-                               mixer_1_A, mixer_1_phi, mixer_1_c, m1d2_snr,
-                               detector_mixer_phidiff, detector_mixer_phidiff2,
-                               mixer_phidiff, digi_phidiff,
-                               detector_mixer2_phase_difference]
+            detector_mixer2_phidiff_c = detector_mixer2_phidiff + phase_shift
+            detector_mixer2_phidiff_c += 2. * np.pi
+            detector_mixer2_phidiff_c = detector_mixer2_phidiff_c % (2. * np.pi)
+
+            analyzed_values = [tracebundle, fosof_A, fosof_phi, fosof_c,
+                               det_snr, fosof_A2, fosof_phi2, fosof_c2,
+                               det_snr_2nd, mixer_A, mixer_phi, mixer_c,
+                               m1d1_snr, mixer_2_A, mixer_2_phi, mixer_2_c,
+                               m2_snr, mixer_1_A, mixer_1_phi, mixer_1_c,
+                               m1d2_snr, detector_mixer_phidiff,
+                               detector_mixer_phidiff_c,
+                               detector_mixer_phidiff2, mixer_phidiff,
+                               digi_phidiff, detector_mixer2_phidiff,
+                               detector_mixer2_phidiff_c]
 
             if not (cgxpressure_columnname in data.columns):
                 analyzed_values.append(1.6e-6)
@@ -535,6 +584,24 @@ def read_traces(directory):
                 print("Finished "+str(float(line_n)/float(num_lines)))
 
         num_finished = len(df)
+        if num_finished == num_finished_last:
+            waited += 1
+        else:
+            waited = 0
+            num_finished_last = num_finished
+
+        # Assuming new data will occur within two minutes, otherwise assume the
+        # dataset was aborted for some reason.
+        if waited == 24:
+            print("Assuming this dataset was cancelled. Finished at " + \
+                  str(100.*float(line_n)/float(num_lines)) + "%")
+            num_finished = num_lines
+            os.chdir(outfile_directory)
+            f = open('aborted.txt', 'w')
+            f.write('Ended after ' + \
+                    str(100.*float(line_n)/float(num_lines)) + '% completed.')
+            f.close()
+
         os.chdir(outfile_directory)
         df.to_csv(outfile_name.replace(".TV","_TV.csv"),
                   header = df.columns)

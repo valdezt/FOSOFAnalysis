@@ -96,7 +96,8 @@ class FOSOFSummary(object):
             self.fosof_summary = pd.read_csv(summary_file)
             self.fosof_summary = self.fosof_summary.set_index('Dataset Timestamp')
 
-    def plotlineshape(self, timestamp, c_h = None, averaging_method = None):
+    def plotlineshape(self, timestamp, c_h = None, averaging_method = None,
+                      corrected = None):
         '''
         Plots the FOSOF lineshape and its fit for the data at the specified
         timestamp, combiner/harmonic (c_h), and averaging method.
@@ -111,36 +112,36 @@ class FOSOFSummary(object):
                                converters = {"Least-Squares Fit" : ast.literal_eval,
                                              "Parameter Error" : ast.literal_eval})
 
-        ch_list = fosof_data['Combiner/Harmonic'].unique()
-        avg_method_list = fosof_data['Averaging Method'].unique()
+        if c_h == None:
+            ch_list = fosof_data['Combiner/Harmonic'].unique()
+        else:
+            ch_list = [c_h]
+
+        if averaging_method == None:
+            avg_method_list = fosof_data['Averaging Method'].unique()
+        else:
+            avg_method_list = [averaging_method]
+
+        if corrected == None:
+            corrected_list = fosof_data['Corrected'].unique()
+        else:
+            corrected_list = [corrected]
 
         # Sort the data into different data types
         fosof_data = fosof_data.set_index(['Averaging Method',
-                                           'Combiner/Harmonic'])
-        fit_data = fit_data.set_index(['Averaging Method', 'Combiner/Harmonic'] + \
-                                      ff.type_groupby_columns)
+                                           'Combiner/Harmonic', 'Corrected'])
+        fit_data = fit_data.set_index(['Averaging Method', 'Combiner/Harmonic',
+                                       'Corrected'] + ff.type_groupby_columns)
 
-        if c_h == None and averaging_method == None:
-            for ch in ch_list:
-                for avg_method in avg_method_list:
-                    self.plotchavg_lineshape(ch, avg_method, fosof_data, fit_data)
-            plt.show()
-
-        elif c_h == None:
-            for ch in ch_list:
-                avg_method = averaging_method
-                self.plotchavg_lineshape(ch, avg_method, fosof_data, fit_data)
-            plt.show()
-
-        elif averaging_method == None:
+        for ch in ch_list:
             for avg_method in avg_method_list:
-                ch = c_h
-                self.plotchavg_lineshape(ch, avg_method, fosof_data, fit_data)
-            plt.show()
-        else:
-            self.plotchavg_lineshape(c_h, averaging_method, fosof_data, fit_data)
+                for corr in corrected_list:
+                    self.plotchavgcorr_lineshape(ch, avg_method, corr,
+                                                 fosof_data, fit_data)
+        plt.show()
 
-    def plotchavg_lineshape(self, ch, avg_method, fosof_data, fit_data):
+    def plotchavgcorr_lineshape(self, ch, avg_method, corr, fosof_data,
+                                fit_data):
         '''
         Creates a series of plots for each data type, given a combiner/harmonic
         (ch) pair, an averaging method, the FOSOF data points, and the fit
@@ -149,7 +150,7 @@ class FOSOFSummary(object):
 
         # Count the different number of data types (B fields, 910,
         # offset freq, mass flow)
-        ch_av_data = fosof_data.loc[avg_method, ch].reset_index()
+        ch_av_data = fosof_data.loc[avg_method, ch, corr].reset_index()
         # if self.fosof:
         #     ch_av_data = ch_av_data.set_index(ff.type_groupby_columns[1:])
         # else:
@@ -169,7 +170,7 @@ class FOSOFSummary(object):
             # print(fit_data.index)
             # print(ind)
             # print(fit_data.loc[:,:,ind[0], ind[1], ind[2], ind[3]])
-            ch_av_fit = fit_data.loc[(avg_method, ch) + indices[plot_num]]
+            ch_av_fit = fit_data.loc[(avg_method, ch, corr) + indices[plot_num]]
             fit_func = np.poly1d(ch_av_fit.loc['Least-Squares Fit'])
             fit_err = ch_av_fit.loc['Parameter Error']
             chi2 = ch_av_fit.loc['Chi Squared']
@@ -193,8 +194,14 @@ class FOSOFSummary(object):
                 slope_string = 'Slope = ' + str(round(fit_func[1],5)) + \
                                '+/-' + str(round(fit_err[1],5)) + ' rad/MHz\n'
 
+            if corr == True:
+                corrected = ', Corrected'
+            else:
+                corrected = ''
+
             plt.subplot(npo2, 2, plot_num+1)
-            plt.title(ch + ' (' + avg_method + ')\n' + ','.join(np.array(indices[plot_num]).astype(str)))
+            plt.title(ch + ' (' + avg_method + ')' + corrected + '\n' + \
+                      ','.join(np.array(indices[plot_num]).astype(str)))
             freqs = ch_av_data.loc[indices[plot_num]][ff.frequency_columnname].values
             phases = ch_av_data.loc[indices[plot_num]]['Average Phase [rad]'].values
             errors = ch_av_data.loc[indices[plot_num]]['Phase Error [rad]'].values
@@ -207,7 +214,8 @@ class FOSOFSummary(object):
 
     def plotlinecentres(self, separation, electric_field, accel_v,
                         c_h = None, averaging_method = None,
-                        freq_range = None, plotslope = False):
+                        freq_range = None, plotslope = False,
+                        corrected = None):
         '''
         Plots all of the line centres for a single separation and electric field
         amplitude.
@@ -335,7 +343,8 @@ class FOSOFSummary(object):
 
     def plotlinecentres_e(self, separation, accel_vs = None,
                           electric_fields = None, c_h = None,
-                          averaging_method = None, freq_range = None):
+                          averaging_method = None, freq_range = None,
+                          corrected = None):
         '''
         Plots all of the line centres for a single separation and electric field
         amplitude. This function will first average the resonant frequencies to
@@ -403,6 +412,15 @@ class FOSOFSummary(object):
         else:
             avgmethod_list = [averaging_method]
 
+        if corrected == None:
+            corrected_list = [True, False]
+        elif not (corrected in summary['Corrected'].unique()):
+            print("Could not find the corrected value specified. Should be " \
+                  "True or False.")
+            return
+        else:
+            corrected_list = [corrected]
+
         if not (type(freq_range) == type(None)):
             try:
                 print("SELECTING FREQ RANGE")
@@ -416,26 +434,34 @@ class FOSOFSummary(object):
                       itertools.permutations(ch_list, len(avgmethod_list))]
         all_chavg = [item for sublist in all_chavg for item in sublist]
 
+        all_chavgcorr = [zip(x, all_chavg) for x in \
+                         itertools.permutations(corrected_list, len(all_chavg))]
+        all_chavgcorr = [item for sublist in all_chavgcorr for item in sublist]
+
         type_list = summary.set_index(ff.type_groupby_columns[1:]).index.unique()
 
         if len(type_list) > 1:
-            all_combos = [zip(x, all_chavg) \
+            all_combos = [zip(x, all_chavgcorr) \
                           for x in \
-                          itertools.permutations(type_list, len(all_chavg))]
+                          itertools.permutations(type_list, len(all_chavgcorr))]
             all_combos = [item for sublist in all_combos for item in sublist]
         else:
-            all_combos = [list(chavg) + [type_list[0]] for chavg in all_chavg]
+            all_combos = [list(chavco) + [type_list[0]] for chavco in all_chavgcorr]
         print(all_combos)
 
         # Create a different figure for each combiner/harmonic and averaging
         # method combination
-        for (ch, avgmethod, type) in all_combos:
+        for (ch, avgmethod, corr, type) in all_combos:
             summary_ch = summary.copy()
-            summary_ch = summary_ch.set_index('Combiner/Harmonic')
+            summary_ch.set_index('Combiner/Harmonic', inplace = True)
             summary_ch = summary_ch.loc[ch]
 
-            summary_to_plot = summary_ch.copy()
-            summary_to_plot = summary_to_plot.set_index('Averaging Method')
+            summary_corr = summary_ch.copy()
+            summary_corr.set_index('Corrected', inplace = True)
+            sumary_corr = summary_corr.loc[corr]
+
+            summary_to_plot = summary_corr.copy()
+            summary_to_plot.set_index('Averaging Method', inplace = True)
             summary_to_plot = summary_to_plot.loc[avgmethod]
             summary_to_plot = summary_to_plot \
                                 .set_index(ff.type_groupby_columns[1:])
@@ -585,15 +611,17 @@ class FOSOFDataSet(object):
         self.location = analyzed_data_location + self.timestamp + \
                         " - Zero - Pi/"
 
+        self.dataset_0.phasedata.reset_index(inplace = True)
+        self.dataset_0.phasedata.set_index(ff.frequency_columnname, inplace = True)
+        self.dataset_pi.phasedata.reset_index(inplace = True)
+        self.dataset_pi.phasedata.set_index(ff.frequency_columnname, inplace = True)
+
         # Determine integer frequency range for summary file
         min_freq = min(self.dataset_0.phasedata.index.values)
         max_freq = max(self.dataset_0.phasedata.index.values)
         print(min_freq)
         self.freq_range = max_freq - min_freq
         self.freq_range = str(int(round(self.freq_range,0)))
-
-        if self.dataset_0.timestamp[13] == "c":
-            self.freq_range = self.freq_range + "c"
 
         # If the data has already been analyzed, ask the user if they want to
         # analyze it again.
@@ -621,16 +649,20 @@ class FOSOFDataSet(object):
 
         # Subtract 0 - pi
         self.fosof_data = self.analyze_fosof(self.dataset_0, self.dataset_pi)
-        self.fosof_data = self.fosof_data.reset_index().set_index(['Combiner/Harmonic',
-                                                                   'Averaging Method'] + \
-                                                                   ff.type_groupby_columns[:])
+        self.fosof_data = self.fosof_data.reset_index() \
+                                         .set_index(['Combiner/Harmonic',
+                                                     'Averaging Method',
+                                                     'Corrected'] + \
+                                                     ff.type_groupby_columns[:])
 
         # Fit data for both combiners, as well as unique and RMS uncertainties
         fitdata_columns = ["Least-Squares Fit", "Chi Squared",
                            "Probability of Chi Squared", "Parameter Error",
-                           "Resonant Frequency [MHz]", "Error in Resonant Frequency [MHz]"]
+                           "Resonant Frequency [MHz]",
+                           "Error in Resonant Frequency [MHz]"]
         self.fitdata = pd.DataFrame(columns = ['Combiner/Harmonic',
-                                               'Averaging Method'] + \
+                                               'Averaging Method',
+                                               'Corrected'] + \
                                                ff.type_groupby_columns[:] + \
                                                fitdata_columns[:])
 
@@ -646,7 +678,8 @@ class FOSOFDataSet(object):
 
             fitdata = pd.Series(fitdata, index = fitdata_columns)
             fitdata = fitdata.append(pd.Series(ind, index = ['Combiner/Harmonic',
-                                                             'Averaging Method'] + \
+                                                             'Averaging Method',
+                                                             'Corrected'] + \
                                                              ff.type_groupby_columns[:]))
             fitdata = fitdata.append(pd.Series())
             self.fitdata = self.fitdata.append(fitdata, ignore_index = True)
@@ -757,7 +790,9 @@ class FOSOFDataSet(object):
         '''
 
         # Group all data by data type and averaging method
-        new_type = ff.type_groupby_columns[:] + ['Averaging Method', 'Combiner/Harmonic']
+        new_type = ff.type_groupby_columns[:] + ['Averaging Method',
+                                                 'Combiner/Harmonic',
+                                                 'Corrected']
         dataset_0_phase = dataset_0.phasedata.reset_index().groupby(new_type)
         dataset_pi_phase = dataset_pi.phasedata.reset_index().groupby(new_type)
 
@@ -900,11 +935,22 @@ class DataSet(object):
         # Obtain detector - power combiner phase/fit data for both combiners
         # and for 2nd harmonic on the first (forward) combiner
         c1_h1 = self.analyze_fosof_phases(self.full_data.copy(),
-                                               ff.fosofphasediff_columnname,
-                                               subtract = self.subtract)
+                                          ff.fosofphasediff_columnname,
+                                          subtract = self.subtract)
 
         c1_h1[0]['Combiner/Harmonic'] = 'Combiner 1, Harmonic 1'
+        c1_h1[0]['Corrected'] = False
         c1_h1[1]['Combiner/Harmonic'] = 'Combiner 1, Harmonic 1'
+        c1_h1[1]['Corrected'] = False
+
+        c1_h1_c = self.analyze_fosof_phases(self.full_data.copy(),
+                                            ff.fosofphasediff_c_columnname,
+                                            subtract = self.subtract)
+
+        c1_h1_c[0]['Combiner/Harmonic'] = 'Combiner 1, Harmonic 1'
+        c1_h1_c[0]['Corrected'] = True
+        c1_h1_c[1]['Combiner/Harmonic'] = 'Combiner 1, Harmonic 1'
+        c1_h1_c[1]['Corrected'] = True
         print('Done first power combiner.')
 
         print('Analyzing data from second power combiner...')
@@ -912,14 +958,25 @@ class DataSet(object):
                                           ff.fosofphasediffm2_columnname,
                                           subtract = self.subtract)
         c2_h1[0]['Combiner/Harmonic'] = 'Combiner 2, Harmonic 1'
+        c2_h1[0]['Corrected'] = False
         c2_h1[1]['Combiner/Harmonic'] = 'Combiner 2, Harmonic 1'
+        c2_h1[1]['Corrected'] = False
+
+        c2_h1_c = self.analyze_fosof_phases(self.full_data.copy(),
+                                            ff.fosofphasediffm2_c_columnname,
+                                            subtract = self.subtract)
+
+        c2_h1_c[0]['Combiner/Harmonic'] = 'Combiner 2, Harmonic 1'
+        c2_h1_c[0]['Corrected'] = True
+        c2_h1_c[1]['Combiner/Harmonic'] = 'Combiner 2, Harmonic 1'
+        c2_h1_c[1]['Corrected'] = True
         print('Done second power combiner.')
 
         # Creating a complete dataframe (both combiners)
-        self.fitdata = pd.concat([c1_h1[0], c2_h1[0]])
+        self.fitdata = pd.concat([c1_h1[0], c2_h1[0], c1_h1_c[0], c2_h1_c[0]])
         self.fitdata.to_csv(self.location + 'fitdata.csv')
 
-        self.phasedata = pd.concat([c1_h1[1], c2_h1[1]])
+        self.phasedata = pd.concat([c1_h1[1], c2_h1[1], c1_h1_c[1], c2_h1_c[1]])
         self.phasedata.to_csv(self.location + 'phasedata.csv')
 
         # Average data over time and plot
