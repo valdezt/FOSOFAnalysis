@@ -275,70 +275,86 @@ class FOSOFSummary(object):
         else:
             avgmethod_list = [averaging_method]
 
+        if corrected == None:
+            corrected_list = list(summary['Corrected'].unique())
+        elif not (corrected in summary['Corrected'].unique()):
+            print("Could not find the averaging method specified.")
+            return
+        else:
+            corrected_list = [corrected]
+
         # Create a different figure for each combiner/harmonic and averaging
         # method combination
         for ch in ch_list:
             summary_ch = summary.copy()
             summary_ch = summary_ch.set_index('Combiner/Harmonic')
             summary_ch = summary_ch.loc[ch]
-            for avgmethod in avgmethod_list:
-                summary_to_plot = summary_ch.copy()
-                summary_to_plot = summary_to_plot.set_index('Averaging Method')
-                summary_to_plot = summary_to_plot.loc[avgmethod]
-                summary_to_plot = summary_to_plot \
-                                    .set_index(ff.type_groupby_columns[1:])
+            for corr in corrected_list:
+                summary_corr = summary_ch.copy()
+                summary_corr = summary_corr.set_index('Corrected')
+                summary_corr = summary_corr.loc[corr]
+                for avgmethod in avgmethod_list:
+                    summary_to_plot = summary_corr.copy()
+                    summary_to_plot = summary_to_plot.set_index('Averaging Method')
+                    summary_to_plot = summary_to_plot.loc[avgmethod]
+                    summary_to_plot = summary_to_plot \
+                                        .set_index(ff.type_groupby_columns[1:])
 
-                # Determine the number of subplots in each figure
-                n_plots = len(summary_to_plot.index.unique()) + 1
-                npo2 = n_plots // 2
+                    # Determine the number of subplots in each figure
+                    n_plots = len(summary_to_plot.index.unique()) + 1
+                    npo2 = n_plots // 2
 
-                plt.figure()
-                plt.title(ch + '\n' + avgmethod)
-                typelist = list(summary_to_plot.index.unique())
+                    corrstring = ''
+                    if corr:
+                        corrstring = '\nCorrected'
 
-                counter = 1
-                for type in typelist:
-                    # Get the data to plot on this chart
-                    this_plot = summary_to_plot.loc[type].copy()
+                    plt.figure()
+                    plt.title(ch + '\n' + avgmethod + corrstring)
+                    typelist = list(summary_to_plot.index.unique())
 
-                    # Find the statistical information
-                    avg_std = ff.polyfit(range(len(this_plot)),
-                                         this_plot[val_column].values,
-                                         0,
-                                         w = 1./this_plot[err_column].values**2)
-                    print(avg_std)
-                    avg = avg_std[0][0]
-                    std = avg_std[3][0]
-                    avg_upper = avg + std # For plotting errors
-                    avg_lower = avg - std
-                    chi2 = avg_std[1]
-                    probchi2 = avg_std[2]
-                    maxval = len(this_plot)
-                    val_name = val_column[:val_column.find('[') - 1]
-                    val_units = val_column[val_column.find('[') + 1: \
-                                           val_column.find(']')]
-                    label = val_name + ' = ' + str(round(avg,4)) + \
-                            ' +/- ' + str(round(std,4)) + ' ' + \
-                            val_units + '\n$\chi^2$ = ' + \
-                            str(round(chi2,4)) + '\nP($\chi^2$) = ' + \
-                            str(round(probchi2,4))
+                    counter = 1
+                    for type in typelist:
+                        # Get the data to plot on this chart
+                        this_plot = summary_to_plot.loc[type].copy()
 
-                    # Plot the individual points nicely.
-                    plt.subplot(npo2, npo2, counter)
-                    plt.errorbar(range(maxval),
-                                 this_plot[val_column].values,
-                                 yerr = this_plot[err_column].values,
-                                 fmt = 'r.'
-                                )
+                        # Find the statistical information
+                        avg_std = ff.polyfit(range(len(this_plot)),
+                                             this_plot[val_column].values,
+                                             0,
+                                             w = 1./this_plot[err_column].values**2)
+                        print(avg_std)
+                        avg = avg_std[0][0]
+                        std = avg_std[3][0]
+                        avg_upper = avg + std # For plotting errors
+                        avg_lower = avg - std
+                        chi2 = avg_std[1]
+                        probchi2 = avg_std[2]
+                        maxval = len(this_plot)
+                        val_name = val_column[:val_column.find('[') - 1]
+                        val_units = val_column[val_column.find('[') + 1: \
+                                               val_column.find(']')]
+                        label = val_name + ' = ' + str(round(avg,4)) + \
+                                ' +/- ' + str(round(std,4)) + ' ' + \
+                                val_units + '\n$\chi^2$ = ' + \
+                                str(round(chi2,4)) + '\nP($\chi^2$) = ' + \
+                                str(round(probchi2,4))
 
-                    plt.plot([-1, maxval], [avg, avg], 'b-',
-                             label = label)
-                    plt.plot([-1, maxval], [avg_upper, avg_upper], 'b--',
-                             [-1, maxval], [avg_lower, avg_lower], 'b--')
-                    plt.xlabel('Trial #')
-                    plt.ylabel(val_column)
-                    plt.legend()
-                    counter += 1
+                        # Plot the individual points nicely.
+                        plt.subplot(npo2, npo2, counter)
+                        plt.errorbar(range(maxval),
+                                     this_plot[val_column].values,
+                                     yerr = this_plot[err_column].values,
+                                     fmt = 'r.'
+                                    )
+
+                        plt.plot([-1, maxval], [avg, avg], 'b-',
+                                 label = label)
+                        plt.plot([-1, maxval], [avg_upper, avg_upper], 'b--',
+                                 [-1, maxval], [avg_lower, avg_lower], 'b--')
+                        plt.xlabel('Trial #')
+                        plt.ylabel(val_column)
+                        plt.legend()
+                        counter += 1
         plt.show()
 
     def plotlinecentres_e(self, separation, accel_vs = None,
@@ -423,8 +439,6 @@ class FOSOFSummary(object):
 
         if not (type(freq_range) == type(None)):
             try:
-                print("SELECTING FREQ RANGE")
-                print(summary['Frequency Range [MHz]'])
                 summary = summary.loc[summary['Frequency Range [MHz]'] == str(freq_range)]
             except:
                 print("Could not find frequency range specified.")
@@ -493,7 +507,7 @@ class FOSOFSummary(object):
 
                 # Shift the resonant frequencies down by the predicted
                 # shift value.
-                this_plot.at[index,'Resonant Frequency [MHz]'] = this_plot.at[index,'Resonant Frequency [MHz]'] - \
+                this_plot.at[index,'Resonant Frequency [MHz]'] = this_plot.at[index, 'Resonant Frequency [MHz]'] - \
                                                                  f_v_esq(index**2)
 
             # Compute the total REDUCED chi-square statistic
@@ -524,8 +538,12 @@ class FOSOFSummary(object):
                     str(round(chi2,4)) + '\nP($\chi^2$) = ' + \
                     str(round(probchi2,4))
 
+            corrstring = ''
+            if corr:
+                corrstring = '\nCorrected'
+
             plt.figure()
-            plt.title(ch + '\n' + avgmethod)
+            plt.title(ch + '\n' + avgmethod + corrstring)
             minval = 0
 
             # Plot the resonant frequencies for each of the electric field
@@ -759,6 +777,7 @@ class FOSOFDataSet(object):
                                'Chi Squared' : self.fitdata.iloc[i]['Chi Squared'],
                                'Combiner/Harmonic' : self.fitdata.iloc[i]['Combiner/Harmonic'],
                                'Averaging Method' : self.fitdata.iloc[i]['Averaging Method'],
+                               'Corrected' : self.fitdata.iloc[i]['Corrected'],
                                'Offset Frequency [Hz]' : self.fitdata.iloc[i]['Offset Frequency [Hz]'],
                                'B_x [Gauss]' : self.fitdata.iloc[i]['B_x [Gauss]'],
                                'B_y [Gauss]' : self.fitdata.iloc[i]['B_y [Gauss]'],
